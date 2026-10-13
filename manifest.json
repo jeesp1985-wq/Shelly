@@ -1,6 +1,6 @@
 [
   {
-    "fname": "Shelly/mitsubishi.js",
+    "fname": "mitsubishi.js",
     "title": "JeTu Mitsubishi Electric CN105",
     "description": "Controls a Mitsubishi Electric indoor unit through the CN105 service port ",
     "doc": "mitsubishi/cn105/README.md",
