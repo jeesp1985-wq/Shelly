@@ -1,18 +1,9 @@
 [
-{
+  {
     "fname": "Shelly/mitsubishi.js",
-    "description": "Minun omat automaatiot",
-    "version": "1.0.0",
-    "author": "Mää",
-    "homepage": "https://github.com/",
-    "scripts": [
-        {
-            "name": "Mitsubishi AC",
-            "description": "Ilmalämpöpumpun ohjaus",
-            "version": "1.0.0",
-            "path": "mitsubishi.js"
-        }
-    ]
-}
+    "title": "JeTu Mitsubishi Electric CN105",
+    "description": "Controls a Mitsubishi Electric indoor unit through the CN105 service port ",
+    "doc": "mitsubishi/cn105/README.md",
+    "tags": ["the-pill", "uart", "hvac", "heat-pump", "mitsubishi", "cn105"]
+  }
 ]
-
