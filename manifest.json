@@ -1,0 +1,15 @@
+{
+    "name": "Omat Shelly Skriptit",
+    "description": "Minun omat automaatiot",
+    "version": "1.0.0",
+    "author": "Mää",
+    "homepage": "https://github.com",
+    "scripts": [
+        {
+            "name": "Mitsubishi AC",
+            "description": "Ilmalämpöpumpun ohjaus",
+            "version": "1.0.0",
+            "path": "mitsubishi.js"
+        }
+    ]
+}
