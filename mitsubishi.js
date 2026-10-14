@@ -90,7 +90,7 @@ let CFG = {
   CONNECT_TIMEOUT_MS: 10000,
   MAX_FAILS: 5,              // consecutive timeouts -> reconnect
 
-  POLL: [0x02, 0x03, 0x06, 0x09],  // settings, room temp, status, sub mode (defrost)
+  POLL: [0x02, 0x03, 0x07, 0x09],  // settings, room temp, status, sub mode (defrost)
 
   REMOTE_TEMP_KEEPALIVE_MS: 20000,    // 0 = off. Kumo sends every 20 s
   REMOTE_TEMP_TIMEOUT_MS: 1800000,    // 0 = off. Fall back to internal sensor
@@ -475,7 +475,7 @@ function handleInfo(f) {
   let code = f[5];
   if (code === 0x02) { decodeSettings(f); }
   else if (code === 0x03) { decodeRoomTemp(f); }
-  else if (code === 0x06) { decodeStatus(f); }
+  else if (code === 0x07) { decodeStatus(f); }
   else if (code === 0x09) { decodeStandby(f); }
   else { dbg("unhandled info code 0x" + hex(code)); }
 
