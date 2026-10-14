@@ -1,104 +1,78 @@
 /**    JeTu 1.0
- * @title Mitsubishi Electric CN105 heat pump control for the Shelly Pill
- * @description Controls a Mitsubishi Electric indoor unit through its CN105
- *   service port (2400 8E1, level shifter with its own 3.3 V LDO) from the
- *   Shelly app (virtual components), HTTP and optional MQTT / Home Assistant,
- *   with an optional BTHome room sensor and defrost state. Pill firmware 2.0.1+.
- * @status production
- * @link https://github.com/Teme-V/Shelly-pill-AC-control/tree/main/mitsubishi/cn105
+ * @title Mitsubishi Electric CN105 -ilmalämpöpumpun ohjaus Shelly Pill -laitteelle
+ * @description Ohjaa Mitsubishi Electric -sisäyksikköä sen CN105-huoltoportin kautta
+ *   (2400 8E1, jännitetason muunnin omalla 3.3 V LDO-regulaattorilla). Ohjaus onnistuu
+ *   Shelly-sovelluksesta (virtuaalikomponentit), HTTP:n kautta sekä valinnaisesti MQTT:llä /
+ *   Home Assistantilla. Tukee valinnaista BTHome-huonelämpötila-anturia sekä sulatustilan seurantaa.
+ *   Vaatii Pill-laiteohjelmistoversion 2.0.1 tai uudemman.
  */
 
 /*
- * Copyright 2026 The Shelly-pill-AC-control authors
- * SPDX-License-Identifier: Apache-2.0
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not
- * use this file except in compliance with the License. You may obtain a copy
- * at http://www.apache.org/licenses/LICENSE-2.0 . Distributed on an "AS IS"
- * BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
- *
- * CN105 protocol information: SwiCago/HeatPump (original reverse engineering)
- * and echavet/MitsubishiCN105ESPHome; see NOTICE in the repository root.
+ * CN105-protokollatiedot perustuvat SwiCago/HeatPump- (alkuperäinen takaisinmallinnus)
+ * ja echavet/MitsubishiCN105ESPHome-projekteihin.
  */
 
 /**
- * cn105_pill.js — Mitsubishi Electric CN105 control on the Shelly Pill 
- * ---------------------------------------------------------------------------
- * Edit ONLY the CFG block below, paste the whole file into a Shelly script
- * (Web UI -> Scripts -> Add script) and enable "Run on startup".
- * See README.md for wiring, MQTT and Home Assistant.
+ * Portattu ESPHome-toteutuksesta echavet/MitsubishiCN105ESPHome.
  *
- * Ported from the ESPHome implementation echavet/MitsubishiCN105ESPHome
- * (original reverse engineering: SwiCago/HeatPump).
- *
- * Requirements before running:
- *   1) The Pill runs firmware 2.0.1 or later.
- *   2) The Pill peripheral mode is js_uart:
+ * Vaatimukset ennen ajoa:
+ *   1) Pill-laitteessa on ohjelmistoversio 2.0.1 tai uudempi.
+ *   2) Pill-laitteen oheislaitetila on js_uart:
  *        Pill.SetConfig {"config":{"mode":"js_uart"}}
- *      The script sets the serial port to 2400 8E1 itself on every start.
- *   3) Only ONE script may use the UART at a time.
+ *      Skripti asettaa sarjaportiksi 2400 8E1 itse jokaisessa käynnistyksessä.
+ *   3) Vain YKSI skripti saa käyttää UART-sarjaporttia kerrallaan.
  *
- * Pill firmware 2.0.1 notes:
- *   - the Serial mode is reported as "js_uart" (docs example: "jsuart")
- *     -> both names are accepted; the firmware's own name is kept.
- *   - a firmware update resets serial:0 to 115200 8N1 -> the script restores
- *     2400 8E1 at boot (Serial.SetConfig, applied without a reboot).
- *   - a script may have at most 5 Shelly.call()s in flight; the 6th THROWS
- *     "Too many calls in progress" and kills the script -> boot RPCs are
- *     serialized: UART first, then diagnostics, virtual components and
- *     finally the MQTT broker settings.
+ * Pill-laiteohjelmiston 2.0.1 huomautukset:
+ *   - Sarjaporttitilaksi ilmoitetaan "js_uart" -> molemmat kirjoitusasut hyväksytään.
+ *   - Ohjelmistopäivitys nollaa portin tilaan 115200 8N1 -> skripti palauttaa
+ *     asetuksen 2400 8E1 käynnistyksessä ilman uudelleenkäynnistystä.
+ *   - Skriptillä voi olla samanaikaisesti käynnissä enintään 5 Shelly.call()-kutsua;
+ *     kuudes kutsu aiheuttaa virheen "Too many calls in progress" ja kaataa skriptin.
+ *     Tämän vuoksi käynnistyskutsut ajetaan jonossa: ensin UART, sitten diagnostiikka,
+ *     virtuaalikomponentit ja lopuksi MQTT-välittäjän asetukset.
  *
- * Remote temperature from a BTHome sensor paired to the Pill
- * (CFG.REMOTE_TEMP_BTHOME_ID, e.g. a Shelly BLU H&T):
- *   - "auto" picks the only temperature sensor (BTHome obj_id 69 or 2);
- *     every boot lists the candidates as
- *     "BTHome temperature sensor: id=<id> addr=<mac> value=<t>".
- *     Several sensors -> set the id explicitly.
- *   - every new reading of bthomesensor:<id> goes through the same path and
- *     the same 1-40 C check as {"remote_temp": t}; readings older than
- *     REMOTE_TEMP_BTHOME_MAX_AGE_S are ignored.
- *   - a change of >= 0.5 C from the last sent value is sent at once, smaller
- *     changes go out with the next keepalive (protocol resolution is 0.5 C).
- *   - no sensor paired, only stale readings or the sensor unpaired -> the
- *     pump uses its own sensor. "auto" keeps searching every minute, so a
- *     sensor paired later is taken into use without a script restart.
- *   - no new readings -> REMOTE_TEMP_TIMEOUT_MS after the last one the pump
- *     returns to its own sensor.
- *   - a manual remote_temp (MQTT/HTTP) still works, but the next BTHome
- *     reading overrides it.
+ * Ulkoinen lämpötila BTHome-anturilta (CFG.REMOTE_TEMP_BTHOME_ID, esim. Shelly BLU H&T):
+ *   - "auto" valitsee Pill-laitteen ainoan BTHome-lämpötila-anturin.
+ *     Käynnistysloki listaa ehdokkaat muodossa: "BTHome temperature sensor: id=<id>...".
+ *     Jos antureita on useita -> aseta ID manuaalisesti.
+ *   - Jokainen uusi bthomesensor:<id> -lukema käy läpi saman 1–40 °C tarkistuksen.
+ *     Asetusta REMOTE_TEMP_BTHOME_MAX_AGE_S vanhemmat lukemat jätetään huomiotta.
+ *   - Vähintään 0.5 °C muutos edelliseen lähetettyyn arvoon nähden lähetetään heti,
+ *     pienemmät muutokset lähetetään seuraavan keepalive-viestin mukana.
+ *   - Jos anturia ei ole paritettu tai se puuttuu -> pumppu käyttää omaa sisäistä anturiaan.
+ *     "auto"-tila etsii anturia minuutin välein, joten uusi anturi otetaan käyttöön ilman restarttia.
+ *   - Jos uusia lukemia ei saada -> REMOTE_TEMP_TIMEOUT_MS ajan kuluttua pumppu palaa omaan anturiinsa.
+ *   - Manuaalinen remote_temp (MQTT/HTTP) toimii yhä, mutta seuraava BTHome-lukema ylikirjoittaa sen.
  *
- * Sub mode (0x09, polled every cycle; codes from echavet cn105_types.h):
- *   sub_mode (NORMAL/WARMUP/DEFROST/PREHEAT/STANDBY/OFF), stage and
- *   auto_sub_mode go to <prefix>/state, plus defrost: true/false; the HA
- *   climate action shows "defrosting" in HEAT/AUTO. A unit that does not
- *   answer 0x09 drops it from the poll after 3 timeouts in a row.
+ * Alitila (0x09, kysely jokaisessa syklissä):
+ *   sub_mode (NORMAL/WARMUP/DEFROST/PREHEAT/STANDBY/OFF), stage ja auto_sub_mode
+ *   lähetetään polkuun <prefix>/state, sekä defrost: true/false. Home Assistantin ilmastointilaite
+ *   näyttää tilaksi "defrosting" (sulatetaan) HEAT/AUTO-tiloissa. Jos yksikkö ei vastaa
+ *   0x09-kyselyyn kolmesti peräkkäin, se poistetaan kyselylistalta.
  *
- * MQTT broker from the script (MQTT_HOST set): MQTT_TLS: true uses TLS with
- * the Pill's built-in CA bundle (ssl_ca "ca.pem", e.g. Let's Encrypt), port
- * 8883 unless MQTT_HOST or MQTT_PORT says otherwise; MQTT_RPC: false turns off
- * Shelly RPC, notifications and MQTT control over MQTT (test broker).
+ * MQTT-välittäjä skriptistä (kun MQTT_HOST on asetettu):
+ *   MQTT_TLS: true käyttää TLS-suojausta Pill-laitteen sisäänrakennetulla CA-pakkauksella.
+ *   MQTT_RPC: false poistaa käytöstä Shellyn RPC-komennot ja ilmoitukset MQTT:n yli.
  *
- * Frame dump (DEBUG): console line per frame; with MQTT also <prefix>/debug,
- * lines "T|R|X <hex> @<ms>" = frame sent / valid frame received / raw UART
- * chunk while there is no link, ms since script start, one message per
- * DEBUG_FLUSH_MS (max ~1 kB, oldest lines dropped first). DEBUG turns
- * itself off after DEBUG_AUTO_OFF_MIN; {"debug":true|false} on <prefix>/set
- * or in the HTTP body switches it at run time (true restarts the auto-off).
+ * Kehysten vedos (DEBUG):
+ *   Tulostaa konsolirivin jokaisesta kehyksestä. MQTT:n ollessa käytössä myös kohteeseen <prefix>/debug
+ *   lähetetään rivit muodossa "T|R|X <hex> @<ms>" (lähetetty / vastaanotettu / raaka UART-pätkä).
+ *   DEBUG kytkeytyy automaattisesti pois päältä ajan DEBUG_AUTO_OFF_MIN kuluttua.
+ *   {"debug":true|false} kytkee tilan lennosta <prefix>/set-polun tai HTTP-rungon kautta.
  *
- * Wiring with a 2-channel MH level shifter (CN105 = 5 V TTL, Pill = 3.3 V):
- *   CN105 pin3 5V  -> shifter 5V     (HV reference; 662K LDO produces 3V3)
- *   CN105 pin2 GND -> shifter GND (both sides) -> Pill GND
- *   CN105 pin4 TX  -> shifter HV1 ... LV1 -> Pill IO2 (RX)
- *   CN105 pin5 RX  <- shifter HV2 ... LV2 <- Pill IO1 (TX)
- *   Shifter 3V3 pin: leave unconnected if the module has its own LDO (662K).
- *   CN105 pin1 12V: leave unconnected, NEVER to signals or to the Pill.
- *   Pill 5 V supply: from CN105 pin3 (same wire as the shifter 5V), no buck.
+ * Kytkentä 2-kanavaisella MH-tasonmuuntimella (CN105 = 5 V TTL, Pill = 3.3 V):
+ *   CN105 nasta 3 (5V)  -> muuntimen HV-puoli (5V referenssi; 662K LDO tuottaa 3V3 jännitteen)
+ *   CN105 nasta 2 (GND) -> muuntimen GND (molemmat puolet) -> Pill GND
+ *   CN105 nasta 4 (TX)  -> muuntimen HV1 ... LV1 -> Pill IO2 (RX)
+ *   CN105 nasta 5 (RX)  <- muuntimen HV2 ... LV2 <- Pill IO1 (TX)
+ *   Muuntimen 3V3-nasta: Jätä kytkemättä, jos moduulissa on oma LDO-regulaattori (662K).
+ *   CN105 nasta 1 (12V): Jätä kytkemättä. ÄLÄ KOSKAAN kytke signaalilinjoihin tai Shelly Pill -laitteeseen.
+ *   Pill 5 V virransyöttö: Suoraan CN105-nastasta 3 (sama johdin kuin muuntimen 5V), ei tarvita erillistä muunninta.
  *
- * Espruino restrictions honored in this script:
- *   - no closures  -> all state kept in globals
- *   - no setTimeout -> Timer.set()
- *   - no forEach/map/filter -> for loops
- * 
- * version 20261013-1
+ * Tässä skriptissä huomioidut Espruino-rajoitukset:
+ *   - Ei sulkeumia (closures) -> kaikki tilat pidetään globaaleissa muuttujissa.
+ *   - Ei setTimeout-funktiota -> käytetään Timer.set()-funktiota.
+ *   - Ei forEach/map/filter-metodeja -> käytetään tavallisia for-silmukoita.
  */
 
 // ═══════════════════════════════════════════════════════════════════
@@ -169,7 +143,7 @@ let CFG = {
   // ── Shelly app (virtual components) ───────────────────────────────
   VC_GROUP_NAME: "MitsubishiAC",  // group shown as its own virtual device in the Shelly app
 
-  DEBUG: false,              // log every TX/RX frame; with MQTT also <prefix>/debug
+  DEBUG: true,              // log every TX/RX frame; with MQTT also <prefix>/debug
   DEBUG_FLUSH_MS: 2000,      // <prefix>/debug: one message per this period
   DEBUG_AUTO_OFF_MIN: 1440   // DEBUG switches itself off after this (0 = never)
 };
